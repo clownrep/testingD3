@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Boxplot of Speed Restrictions by Train Line</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .tooltip {
+      position: absolute;
+      background-color: white;
+      border: 1px solid #999;
+      padding: 8px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      border-radius: 4px;
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .boxplot rect {
+      fill-opacity: 0.7;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <svg width="700" height="500"></svg>
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    d3.csv("monthly_avg_speed.csv").then(function(data) {
+      data.forEach(function(d) {
+        d.Restriction_Speed_MPH = +d.Restriction_Speed_MPH;
+      });
+
+      const grouped = d3.group(data, d => d.Line);
+      const lines = Array.from(grouped.keys());
+
+      const color = d3.scaleOrdinal()
+        .domain(lines)
+        .range(["blue", "green", "orange", "red"]);
+
+      const margin = { top: 20, right: 30, bottom: 40, left: 50 },
+            width = 700 - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+      const svg = d3.select("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      const tooltip = d3.select("#tooltip");
+
+      const x = d3.scaleBand()
+        .domain(lines)
+        .range([0, width])
+        .paddingInner(0.3)
+        .paddingOuter(0.2);
+
+      const allSpeeds = data.map(d => d.Restriction_Speed_MPH);
+      const y = d3.scaleLinear()
+        .domain([0, d3.max(allSpeeds)]).nice()
+        .range([height, 0]);
+
+      svg.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x));
+
+      svg.append("g")
+        .call(d3.axisLeft(y));
+
+      // Compute stats per Line
+      const stats = Array.from(grouped, ([key, values]) => {
+        const speeds = values.map(d => d.Restriction_Speed_MPH).sort(d3.ascending);
+        const q1 = d3.quantile(speeds, 0.25);
+        const median = d3.quantile(speeds, 0.5);
+        const q3 = d3.quantile(speeds, 0.75);
+        const iqr = q3 - q1;
+        const min = d3.max([d3.min(speeds), q1 - 1.5 * iqr]);
+        const max = d3.min([d3.max(speeds), q3 + 1.5 * iqr]);
+
+        return { Line: key, q1, median, q3, min, max };
+      });
+
+      svg.selectAll(".boxplot")
+        .data(stats)
+        .enter()
+        .append("g")
+        .attr("class", "boxplot")
+        .attr("transform", d => `translate(${x(d.Line) + x.bandwidth() / 2},0)`)
+        .each(function(d) {
+          const g = d3.select(this);
+
+          // Box
+          g.append("rect")
+            .attr("y", y(d.q3))
+            .attr("height", y(d.q1) - y(d.q3))
+            .attr("width", 20)
+            .attr("x", -10)
+            .style("fill", color(d.Line))
+            .on("mouseover", function(event) {
+              tooltip.transition().duration(200).style("opacity", 1);
+              tooltip.html(
+                `<strong>Line:</strong> ${d.Line}<br/>
+                <strong>Min:</strong> ${d.min.toFixed(1)}<br/>
+                <strong>Q1:</strong> ${d.q1.toFixed(1)}<br/>
+                <strong>Median:</strong> ${d.median.toFixed(1)}<br/>
+                <strong>Q3:</strong> ${d.q3.toFixed(1)}<br/>
+                <strong>Max:</strong> ${d.max.toFixed(1)}`
+              )
+              .style("left", (event.pageX + 15) + "px")
+              .style("top", (event.pageY - 28) + "px");
+            })
+            .on("mousemove", function(event) {
+              tooltip.style("left", (event.pageX + 15) + "px")
+                     .style("top", (event.pageY - 28) + "px");
+            })
+            .on("mouseout", function() {
+              tooltip.transition().duration(300).style("opacity", 0);
+            });
+
+          // Median
+          g.append("line")
+            .attr("y1", y(d.median))
+            .attr("y2", y(d.median))
+            .attr("x1", -10)
+            .attr("x2", 10)
+            .attr("stroke", "black")
+            .attr("stroke-width", 2);
+
+          // Whiskers
+          g.append("line")
+            .attr("y1", y(d.min))
+            .attr("y2", y(d.q1))
+            .attr("x1", 0)
+            .attr("x2", 0)
+            .attr("stroke", "black");
+
+          g.append("line")
+            .attr("y1", y(d.q3))
+            .attr("y2", y(d.max))
+            .attr("x1", 0)
+            .attr("x2", 0)
+            .attr("stroke", "black");
+        });
+
+      // Y-axis label
+      svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("x", -margin.top)
+        .attr("y", -margin.left + 10)
+        .attr("transform", "rotate(-90)")
+        .text("Speed Restriction (MPH)");
+
+      // Title
+      svg.append("text")
+        .attr("x", width / 2)
+        .attr("y", -5)
+        .attr("text-anchor", "middle")
+        .style("font-size", "16px")
+        .text("Boxplot of Speed Restrictions by Train Line (Monthly) from 1/2023 - 2/2025");
+    });
+  </script>
+</body>
+</html>
